@@ -42,6 +42,7 @@ local _D = {
 	["_RealFont"] = "DermaDefault",
 	["MenuFont"] = "DermaDefault",
 	["MaxFraction"] = 0.0039296,  -- about 128 units
+	["Display_LocalTime"] = true
 }
 
 local LANG = {
@@ -92,6 +93,10 @@ local LANG = {
 	["distance_units"] = {
 		["ru"] = "Макс. дистанция определения игроков",
 		["en"] = "Max. player detection distance",
+	},
+	["display_localtime"] = {
+		["ru"] = "Отображать локальное время?",
+		["en"] = "Display local time?",
 	},
 	["outline"] = {
 		["ru"] = "Выделение",
@@ -230,6 +235,11 @@ local function UpdateSize( newName )
 
 	C.w = w + 5 * math.floor( w/50 )
 	C.h = h * 4
+	C._h_without_time = C.h
+	if C.Display_LocalTime then
+		local _, localTime_h = surface.GetTextSize( "23:59:59" )
+		C.h = C.h + localTime_h + 5
+	end
 
 	if IsValid( Seetime_Panel ) then
 		Seetime_Panel:SetSize( C.w, C.h )
@@ -248,7 +258,8 @@ local function MakeCustomFont( fName, fSize, fOutline )
 		font = fName,
 		size = fSize,
 		outline = fOutline,
-		extended = false  -- No unicode (check gmod wiki for info)
+		extended = false,  -- No unicode (check gmod wiki for info)
+		antialias = not (fOutline and 1 or 0)
 	} )
 
 	UpdateSize( newName )
@@ -280,6 +291,7 @@ local function LoadConfig()
 
 	surface.SetFont( C.Font )
 	C.w, C.h = surface.GetTextSize( "00w 00d 00h 00m 00s" )
+	C._h_without_time = C.h
 end
 
 local function SaveConfig()
@@ -289,7 +301,7 @@ local function SaveConfig()
 
 	local listOfVariables = {
 		"Font", "FontSize", "FontOutline", "Color", "AnotherColor",
-		"TextColor", "AnotherTextColor", "x", "y", "MaxFraction"
+		"TextColor", "AnotherTextColor", "x", "y", "MaxFraction", "Display_LocalTime"
 	}
 
 	for i, v in ipairs( listOfVariables ) do
@@ -437,6 +449,24 @@ local function OpenColorsDialogue()
 
 end
 
+local function UnfocusPlayer()
+	local w, h = Seetime_Panel:GetSize()
+
+	if (w ~= C.w or h ~= C.h) and not isCloseAnimationActive then
+		isCloseAnimationActive = true
+		Seetime_Panel:SizeTo( C.w, C.h, .75, 1, -1, function()
+
+			-- Called when animation is done
+			anotherPlayer = nil
+			anotherTotalTime = 0
+			anotherSessionTime = 0
+			isCloseAnimationActive = false
+		end )
+	end
+
+end
+
+
 local function OpenConfigEditor()
 
 	local _Before = table.Copy( C )
@@ -528,6 +558,26 @@ local function OpenConfigEditor()
 		MakeCustomFont( C._RealFont, C.FontSize, C.FontOutline )
 
 	end
+	
+	-- display local time
+	
+	local oLocalTime = vgui.Create( "DLabel", Seetime_ConfiguratorPanel )
+	oLocalTime:SetColor( Color(235,235,235) )
+	oLocalTime:SetPos( 5, 24 + 5*20 + 25 )
+	oLocalTime:SetText( GetTranslation( "display_localtime" ) )
+	oLocalTime:SizeToContents()
+
+	local oLocalTimeCheckBox = vgui.Create( "DCheckBox", Seetime_ConfiguratorPanel )
+	oLocalTimeCheckBox:SetChecked( C.Display_LocalTime )
+	function oLocalTimeCheckBox:OnChange( state )
+		C.Display_LocalTime = state
+		UnfocusPlayer()
+		UpdateSize( C.Font )
+	end
+	
+	-- display local time
+	
+	SetRow( oLocalTime, oLocalTimeCheckBox, 5 )
 
 	SetRow( oFontOutline, oFontOutlineCheckBox )
 
@@ -660,23 +710,6 @@ local function GetSetPlayerTime( s64 )
 	end
 end
 
-local function UnfocusPlayer()
-	local w, h = Seetime_Panel:GetSize()
-
-	if (w ~= C.w or h ~= C.h) and not isCloseAnimationActive then
-		isCloseAnimationActive = true
-		Seetime_Panel:SizeTo( C.w, C.h, .75, 1, -1, function()
-
-			-- Called when animation done
-			anotherPlayer = nil
-			anotherTotalTime = 0
-			anotherSessionTime = 0
-			isCloseAnimationActive = false
-		end )
-	end
-
-end
-
 local function Seetime_Initialize()
 
 	LoadConfig()
@@ -735,7 +768,7 @@ local function Seetime_Initialize()
 
 	Seetime_Panel.Paint = function( s, width, height )
 		if height ~= C.h and anotherPlayer then
-			draw.RoundedBox( 5, 0, C.h, C.w, C.h, C.AnotherColor )
+			draw.RoundedBox( 5, 0, C.h, C.w, C._h_without_time, C.AnotherColor )
 			draw.SimpleText( 
 				GetTimeFormatted( anotherTotalTime ),
 				C.Font,
@@ -745,11 +778,18 @@ local function Seetime_Initialize()
 				1,
 				1
 			)
+			
+			local __calc_h = C.h*2-_prevTextHeight
+			
+			if C.Display_LocalTime then
+				__calc_h = C._h_without_time*2
+			end
+			
 			draw.SimpleText( 
 				GetTimeFormatted( anotherSessionTime ),
 				C.Font,
 				C.w/2,
-				C.h*2-_prevTextHeight,
+				__calc_h,
 				C.AnotherTextColor,
 				1,
 				1
@@ -766,6 +806,19 @@ local function Seetime_Initialize()
 			1,
 			1
 		)
+		
+		if C.Display_LocalTime then
+			draw.SimpleText(
+				os.date( "%H:%M:%S", os.time() ),
+				C.Font,
+				C.w/2,
+				C.h/2,
+				C.TextColor,
+				1,
+				1
+			)
+		end
+		
 		draw.SimpleText( 
 			GetTimeFormatted( sessionTime ),
 			C.Font,
